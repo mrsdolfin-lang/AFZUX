@@ -1,0 +1,976 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>AFZUX v3.0 — Admin Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800;900&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+    html, body, #root { height: 100%; }
+    body { background: #07070D; font-family: 'DM Sans', system-ui, sans-serif; }
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #252535; border-radius: 3px; }
+    button:active { transform: scale(0.97); }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useEffect, useCallback } = React;
+
+    // ══════════════════════════════════════════════
+    //  AFZUX v3.0 — GitHub Pages Edition
+    //  storage: localStorage (works everywhere free)
+    // ══════════════════════════════════════════════
+
+    const MASTER_KEY         = "MHAG29NL04Q6391339919";
+    const MASTER_KEY_HASH_SEED = "__AFZUX_V3_MASTER__";
+
+    const VERSIONS = [
+      { id:"free_v1", label:"v1.0 Starter",      color:"#2ECC8A", desc:"Basic AI Chat + Web Search",        free:true  },
+      { id:"free_v2", label:"v2.0 Basic",         color:"#4A9EFF", desc:"+ Images, PDF, Translator",         free:true  },
+      { id:"v3",      label:"v3.0 Standard",      color:"#8B6FE8", desc:"+ Claude+Gemini, 35 Tools",         free:false },
+      { id:"v4",      label:"v4.0 Professional",  color:"#C9A84C", desc:"+ DeepThink, Canvas, Compare",      free:false },
+      { id:"v5",      label:"v5.0 Ultimate",      color:"#FF6B9D", desc:"130+ Features, All Tools",          free:false },
+      { id:"v6",      label:"v6.0 Enterprise",    color:"#FF4D6A", desc:"Source Code, White Label",          free:false },
+    ];
+
+    const DURATIONS = [
+      {label:"3 Days",days:3},{label:"7 Days",days:7},{label:"15 Days",days:15},
+      {label:"1 Month",days:30},{label:"2 Months",days:60},{label:"3 Months",days:90},
+      {label:"4 Months",days:120},{label:"5 Months",days:150},{label:"6 Months",days:180},
+      {label:"7 Months",days:210},{label:"8 Months",days:240},{label:"9 Months",days:270},
+      {label:"10 Months",days:300},{label:"11 Months",days:330},{label:"1 Year",days:365},
+      {label:"Lifetime",days:-1},
+    ];
+
+    // ── SHA-256 via browser crypto ──
+    const sha256 = async (p) => {
+      const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(p + MASTER_KEY_HASH_SEED));
+      return Array.from(new Uint8Array(buf)).map(x => x.toString(16).padStart(2,"0")).join("");
+    };
+
+    // ── localStorage helper (replaces window.storage) ──
+    const store = {
+      get: (key) => {
+        try { const v = localStorage.getItem(key); return v ? { value: v } : null; } catch { return null; }
+      },
+      set: (key, value) => {
+        try { localStorage.setItem(key, value); return true; } catch { return false; }
+      },
+      delete: (key) => {
+        try { localStorage.removeItem(key); return true; } catch { return false; }
+      },
+      list: (prefix) => {
+        try {
+          const keys = [];
+          for(let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i);
+            if(k && k.startsWith(prefix)) keys.push(k);
+          }
+          return { keys };
+        } catch { return { keys: [] }; }
+      },
+    };
+
+    const genKey = () => {
+      const c = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+      return Array.from({length:20}, () => c[Math.floor(Math.random()*c.length)]).join("");
+    };
+
+    // ════════════════════════════════════════════════
+    //  MODAL COMPONENTS (defined outside main render)
+    // ════════════════════════════════════════════════
+
+    function ChangeMasterKeyModal({ C, S, onClose, onSave }) {
+      const [newKey, setNewKey]         = useState("");
+      const [confirmKey, setConfirmKey] = useState("");
+      const [err, setErr]               = useState("");
+
+      const handleSave = async () => {
+        if(newKey.trim().length < 16) { setErr("Key must be 16+ characters"); return; }
+        if(newKey !== confirmKey)      { setErr("Keys don't match"); return; }
+        await onSave(newKey.trim().toUpperCase());
+      };
+
+      return (
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.85)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:300, padding:20, backdropFilter:"blur(12px)" }}>
+          <div style={{ ...S.card({ padding:28, borderRadius:24, maxWidth:400, width:"100%" }), boxShadow:C.shadowLg }}>
+            <div style={{ fontWeight:800, fontSize:18, marginBottom:6 }}>⬡ Change Master Key</div>
+            <div style={{ fontSize:13, color:C.textMuted, marginBottom:20 }}>Set a new master key. Min 16 characters.</div>
+
+            <label style={{ fontSize:11, color:C.textMuted, fontWeight:700, display:"block", marginBottom:6 }}>NEW MASTER KEY</label>
+            <input value={newKey} onChange={e => { setNewKey(e.target.value.toUpperCase()); setErr(""); }}
+              placeholder="Minimum 16 characters"
+              style={{ ...S.inp({ marginBottom:10, fontFamily:"'DM Mono',monospace", letterSpacing:2 }) }}/>
+
+            <label style={{ fontSize:11, color:C.textMuted, fontWeight:700, display:"block", marginBottom:6 }}>CONFIRM NEW KEY</label>
+            <input value={confirmKey} onChange={e => { setConfirmKey(e.target.value.toUpperCase()); setErr(""); }}
+              placeholder="Repeat your new key"
+              style={{ ...S.inp({ marginBottom: err ? 6 : 14, fontFamily:"'DM Mono',monospace", letterSpacing:2 }) }}/>
+
+            {err && <div style={{ color:C.red, fontSize:12, marginBottom:10 }}>{err}</div>}
+
+            <div style={{ padding:10, background:C.red+"12", border:`1px solid ${C.red}30`, borderRadius:10, marginBottom:14, fontSize:12, color:C.red }}>
+              ⚠ Save your new key somewhere safe. You cannot recover it if lost.
+            </div>
+            <button onClick={handleSave} style={S.btnGold({ width:"100%", borderRadius:14, padding:13, marginBottom:10 })}>✓ Update Master Key</button>
+            <button onClick={onClose}    style={S.btnGhost({ width:"100%", textAlign:"center" })}>Cancel</button>
+          </div>
+        </div>
+      );
+    }
+
+    function UserDetailModal({ C, S, user, onClose, onBlock }) {
+      if(!user) return null;
+      const u = user;
+      const totalFeatures = Object.values(u.analytics?.featuresUsed || {}).reduce((a,b) => a+b, 0);
+      return (
+        <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.85)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:200, padding:20, backdropFilter:"blur(8px)" }}>
+          <div style={{ ...S.card({ padding:26, borderRadius:24, maxWidth:480, width:"100%", maxHeight:"85vh", overflowY:"auto" }), boxShadow:C.shadowLg }}>
+
+            {/* Header */}
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:20 }}>
+              <div style={{ display:"flex", gap:12, alignItems:"center" }}>
+                <div style={{ width:52, height:52, borderRadius:"50%", background:u.method==="google"?"#4285F4":C.gradPurple, display:"flex", alignItems:"center", justifyContent:"center", fontWeight:700, fontSize:22, color:"#fff", flexShrink:0 }}>
+                  {(u.name||"U").charAt(0).toUpperCase()}
+                </div>
+                <div>
+                  <div style={{ fontWeight:700, fontSize:17, color:C.text }}>{u.name}</div>
+                  <div style={{ fontSize:12, color:C.textMuted }}>{u.email||"No email"}</div>
+                </div>
+              </div>
+              <button onClick={onClose} style={{ background:"none", border:"none", color:C.textMuted, cursor:"pointer", fontSize:22 }}>✕</button>
+            </div>
+
+            {/* Badges */}
+            <div style={{ display:"flex", gap:6, flexWrap:"wrap", marginBottom:14 }}>
+              {u.blocked  && <span style={S.badge(C.red)}>🚫 Blocked</span>}
+              <span style={S.badge(u.method==="google"?C.blue:C.purple)}>{u.method==="google"?"🌐 Google":"🔑 Ukey"}</span>
+              {u.premium  && <span style={S.badge(C.accent)}>✦ {u.premiumVersion}</span>}
+              {!u.premium && <span style={S.badge(C.green)}>◎ Free</span>}
+            </div>
+
+            {/* Activity */}
+            <div style={S.card({ marginBottom:12 })}>
+              <div style={{ fontSize:11, color:C.textMuted, fontWeight:700, letterSpacing:1, marginBottom:10 }}>ACTIVITY</div>
+              {[
+                ["First Login",    u.firstLogin ? new Date(u.firstLogin).toLocaleString() : "Unknown"],
+                ["Last Login",     u.lastLogin  ? new Date(u.lastLogin).toLocaleString()  : "Never"],
+                ["Total Messages", u.analytics?.totalMsgs || 0],
+                ["Features Used",  totalFeatures],
+                ["Use Case",       u.analytics?.useCase || "Not set"],
+                ["Custom Skills",  u.analytics?.aiSkills || 0],
+              ].map(([k,v]) => (
+                <div key={k} style={{ display:"flex", justifyContent:"space-between", fontSize:13, marginBottom:8 }}>
+                  <span style={{ color:C.textMuted }}>{k}</span>
+                  <span style={{ color:C.text, fontWeight:500 }}>{String(v)}</span>
+                </div>
+              ))}
+            </div>
+
+            {/* Top Features */}
+            {u.analytics?.featuresUsed && Object.keys(u.analytics.featuresUsed).length > 0 && (
+              <div style={S.card({ marginBottom:12 })}>
+                <div style={{ fontSize:11, color:C.textMuted, fontWeight:700, letterSpacing:1, marginBottom:10 }}>TOP FEATURES</div>
+                {Object.entries(u.analytics.featuresUsed).sort((a,b) => b[1]-a[1]).slice(0,6).map(([f,c]) => (
+                  <div key={f} style={{ display:"flex", justifyContent:"space-between", fontSize:12, marginBottom:6 }}>
+                    <span style={{ color:C.textMuted }}>{f.replace(/_/g," ")}</span>
+                    <span style={{ color:C.green, fontWeight:700 }}>{c}×</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Actions */}
+            <div style={{ display:"flex", gap:8 }}>
+              <button onClick={() => onBlock(u.uid, !u.blocked)} style={{ flex:1, padding:"12px 0", borderRadius:12, border:`1px solid ${u.blocked?C.green+"40":C.red+"40"}`, background:u.blocked?C.green+"20":C.red+"20", color:u.blocked?C.green:C.red, fontWeight:600, fontSize:13, cursor:"pointer", fontFamily:"inherit" }}>
+                {u.blocked ? "✓ Unblock User" : "🚫 Block User"}
+              </button>
+              <button onClick={onClose} style={S.btnGhost({ flex:1, textAlign:"center" })}>Close</button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ════════════════════════════════════════════════
+    //  MAIN APP
+    // ════════════════════════════════════════════════
+    function AFZUX() {
+      const [screen,        setScreen]        = useState("loading");
+      const [inputKey,      setInputKey]      = useState("");
+      const [loginError,    setLoginError]    = useState("");
+      const [showChangeKey, setShowChangeKey] = useState(false);
+      const [storedHash,    setStoredHash]    = useState("");
+      const [toast,         setToast]         = useState({ msg:"", type:"ok" });
+      const [activeTab,     setActiveTab]     = useState("overview");
+
+      // Generate tab
+      const [selVersion,      setSelVersion]      = useState(VERSIONS[3]);
+      const [selDuration,     setSelDuration]     = useState(DURATIONS[3]);
+      const [quantity,        setQuantity]        = useState(1);
+      const [clientLabel,     setClientLabel]     = useState("");
+      const [generatedUkeys,  setGeneratedUkeys]  = useState([]);
+      const [genLoading,      setGenLoading]      = useState(false);
+
+      // Codes tab
+      const [selCodeVersion,  setSelCodeVersion]  = useState(VERSIONS[3]);
+      const [selCodeDuration, setSelCodeDuration] = useState(DURATIONS[3]);
+      const [codeQty,         setCodeQty]         = useState(1);
+      const [generatedCodes,  setGeneratedCodes]  = useState([]);
+      const [codeLoading,     setCodeLoading]     = useState(false);
+
+      // Data
+      const [allUkeys,   setAllUkeys]   = useState([]);
+      const [allUsers,   setAllUsers]   = useState([]);
+      const [allCodes,   setAllCodes]   = useState([]);
+      const [ukeyFilter, setUkeyFilter] = useState("all");
+      const [userFilter, setUserFilter] = useState("all");
+      const [searchUsers, setSearchUsers] = useState("");
+      const [searchUkeys, setSearchUkeys] = useState("");
+      const [selectedUser, setSelectedUser] = useState(null);
+      const [stats, setStats] = useState({
+        totalUkeys:0, activeUkeys:0, usedUkeys:0, blockedUkeys:0,
+        totalUsers:0, activeUsers:0, blockedUsers:0,
+        googleUsers:0, ukeyUsers:0, premiumUsers:0, totalRevEstimate:0
+      });
+
+      // ── Colors ──
+      const C = {
+        bg:"#07070D", surface:"#0F0F1A", card:"#14141E",
+        border:"#252535", text:"#E8E8F8", textMuted:"#7070A0", textDim:"#404060",
+        accent:"#C9A84C", purple:"#7B5FE0", blue:"#3A8FEF",
+        green:"#28BB7A", red:"#EF4060", orange:"#EF7C30",
+        gradGold:"linear-gradient(135deg,#C9A84C,#E8C96B)",
+        gradPurple:"linear-gradient(135deg,#5B3FC0,#7B5FE0)",
+        shadow:"0 4px 24px rgba(0,0,0,0.5)",
+        shadowLg:"0 8px 48px rgba(0,0,0,0.7)",
+        shadowGold:"0 4px 20px rgba(201,168,76,0.25)",
+      };
+
+      // ── Style helpers ──
+      const S = {
+        inp:     (x={}) => ({ background:C.card, border:`1.5px solid ${C.border}`, borderRadius:12, padding:"12px 16px", color:C.text, fontSize:14, fontFamily:"'DM Sans',system-ui", outline:"none", width:"100%", ...x }),
+        btnGold: (x={}) => ({ padding:"12px 20px", borderRadius:12, border:"none", background:C.gradGold, color:"#1A1000", fontWeight:700, fontSize:14, cursor:"pointer", fontFamily:"inherit", boxShadow:C.shadowGold, ...x }),
+        btnGhost:(x={}) => ({ padding:"8px 14px", borderRadius:9, border:`1px solid ${C.border}`, background:"transparent", color:C.textMuted, fontSize:12, cursor:"pointer", fontFamily:"inherit", ...x }),
+        card:    (x={}) => ({ background:C.card, border:`1px solid ${C.border}`, borderRadius:16, padding:18, ...x }),
+        badge:   (col, x={}) => ({ background:col+"20", color:col, border:`1px solid ${col}40`, borderRadius:8, padding:"2px 9px", fontSize:11, fontWeight:600, display:"inline-block", ...x }),
+      };
+
+      // ── Toast ──
+      const notify = (msg, type="ok") => {
+        setToast({ msg, type });
+        setTimeout(() => setToast({ msg:"", type:"ok" }), 3500);
+      };
+
+      // ── Init ──
+      useEffect(() => {
+        (async () => {
+          try {
+            const stored = store.get("afzux:masterkeyhash");
+            if(stored?.value) {
+              setStoredHash(stored.value);
+            } else {
+              const hash = await sha256(MASTER_KEY);
+              store.set("afzux:masterkeyhash", hash);
+              setStoredHash(hash);
+            }
+          } catch {}
+          setScreen("login");
+        })();
+      }, []);
+
+      // ── Login ──
+      const doLogin = async () => {
+        const key = inputKey.trim().toUpperCase();
+        if(!key) { setLoginError("Enter your Master Key"); return; }
+        setLoginError("");
+        try {
+          const hash        = await sha256(key);
+          const currentHash = storedHash || await sha256(MASTER_KEY);
+          if(hash !== currentHash) { setLoginError("Invalid Master Key. This app is for the owner only."); return; }
+          setInputKey("");
+          await loadAll();
+          setScreen("dashboard");
+        } catch { setLoginError("Error. Try again."); }
+      };
+
+      // ── Change Master Key ──
+      const handleChangeMasterKey = async (newKey) => {
+        const hash = await sha256(newKey);
+        store.set("afzux:masterkeyhash", hash);
+        setStoredHash(hash);
+        setShowChangeKey(false);
+        notify("✓ Master Key updated! Use new key to login next time.");
+      };
+
+      // ── Load data ──
+      const loadUkeys = useCallback(async () => {
+        try {
+          const keys = store.list("afzux:ukey:");
+          if(!keys?.keys?.length) { setAllUkeys([]); setStats(s => ({...s, totalUkeys:0, activeUkeys:0, usedUkeys:0, blockedUkeys:0})); return; }
+          const list = [];
+          for(const k of keys.keys) {
+            try {
+              const d = store.get(k);
+              if(d?.value) {
+                const uk = JSON.parse(d.value);
+                const id = k.replace("afzux:ukey:","");
+                list.push({ ...uk, ukey:id, isExpired: uk.expiry !== "never" && new Date(uk.expiry) < new Date() });
+              }
+            } catch {}
+          }
+          list.sort((a,b) => new Date(b.createdAt||0) - new Date(a.createdAt||0));
+          setAllUkeys(list);
+          setStats(s => ({
+            ...s,
+            totalUkeys:   list.length,
+            activeUkeys:  list.filter(u => !u.blocked && !u.isExpired).length,
+            usedUkeys:    list.filter(u => u.used).length,
+            blockedUkeys: list.filter(u => u.blocked).length,
+          }));
+        } catch {}
+      }, []);
+
+      const loadUsers = useCallback(async () => {
+        try {
+          const keys = store.list("fizux:user:");
+          if(!keys?.keys?.length) { setAllUsers([]); return; }
+          const list = [];
+          for(const k of keys.keys) {
+            try {
+              const d = store.get(k);
+              if(d?.value) {
+                const user = JSON.parse(d.value);
+                try { const an = store.get(`fizux:analytics:${user.uid}`); if(an?.value) user.analytics = JSON.parse(an.value); } catch {}
+                try { const bl = store.get(`fizux:blocked:${user.uid}`); if(bl?.value) user.blocked = JSON.parse(bl.value).blocked; } catch {}
+                try { const pr = store.get(`fizux:premium:${user.uid}`); if(pr?.value) { const p = JSON.parse(pr.value); user.premium = p.expiry==="lifetime" || new Date(p.expiry) > new Date(); user.premiumVersion = p.version; user.premiumExpiry = p.expiry; } } catch {}
+                list.push(user);
+              }
+            } catch {}
+          }
+          list.sort((a,b) => new Date(b.lastLogin||0) - new Date(a.lastLogin||0));
+          setAllUsers(list);
+          const premUsers = list.filter(u => u.premium);
+          const revEst = premUsers.reduce((sum,u) => {
+            const priceMap = { "v3.0 Standard":799, "v4.0 Professional":1799, "v5.0 Ultimate":2999, "v6.0 Enterprise":5999 };
+            return sum + (priceMap[u.premiumVersion] || 0);
+          }, 0);
+          setStats(s => ({
+            ...s,
+            totalUsers:     list.length,
+            activeUsers:    list.filter(u => !u.blocked).length,
+            blockedUsers:   list.filter(u => u.blocked).length,
+            googleUsers:    list.filter(u => u.method==="google").length,
+            ukeyUsers:      list.filter(u => u.method==="ukey").length,
+            premiumUsers:   premUsers.length,
+            totalRevEstimate: revEst,
+          }));
+        } catch {}
+      }, []);
+
+      const loadCodes = useCallback(async () => {
+        try {
+          const keys = store.list("afzux:code:");
+          if(!keys?.keys?.length) { setAllCodes([]); return; }
+          const list = [];
+          for(const k of keys.keys) {
+            try {
+              const d = store.get(k);
+              if(d?.value) {
+                const c = JSON.parse(d.value);
+                list.push({ ...c, code: k.replace("afzux:code:",""), isExpired: c.expiry !== "never" && new Date(c.expiry) < new Date() });
+              }
+            } catch {}
+          }
+          setAllCodes(list.sort((a,b) => new Date(b.createdAt||0) - new Date(a.createdAt||0)));
+        } catch {}
+      }, []);
+
+      const loadAll = useCallback(async () => {
+        await Promise.all([loadUkeys(), loadUsers(), loadCodes()]);
+      }, [loadUkeys, loadUsers, loadCodes]);
+
+      // ── Generate Ukeys ──
+      const generateUkeys = async () => {
+        setGenLoading(true);
+        const newOnes = [];
+        for(let i = 0; i < quantity; i++) {
+          const ukey   = genKey();
+          const expiry = selDuration.days === -1 ? "never" : new Date(Date.now() + selDuration.days * 86400000).toISOString();
+          const data   = {
+            label: clientLabel || `User-${Date.now()}`,
+            version: selVersion.label, versionId: selVersion.id,
+            duration: selDuration.label, durationDays: selDuration.days,
+            expiry, free: selVersion.free, used: false, blocked: false,
+            lastLogin: null, createdAt: new Date().toISOString(),
+          };
+          store.set(`afzux:ukey:${ukey}`, JSON.stringify(data));
+          newOnes.push({ ukey, ...data });
+        }
+        setGeneratedUkeys(newOnes);
+        await loadUkeys();
+        notify(`✓ ${quantity} Ukey${quantity > 1 ? "s" : ""} generated!`);
+        setGenLoading(false);
+      };
+
+      // ── Generate Codes ──
+      const generateCodes = async () => {
+        setCodeLoading(true);
+        const newOnes = [];
+        for(let i = 0; i < codeQty; i++) {
+          const code   = genKey();
+          const expiry = selCodeDuration.days === -1 ? "never" : new Date(Date.now() + selCodeDuration.days * 86400000).toISOString();
+          const data   = {
+            version: selCodeVersion.label, duration: selCodeDuration.label,
+            durationDays: selCodeDuration.days, expiry,
+            used: false, usedBy: null, usedAt: null, createdAt: new Date().toISOString(),
+          };
+          store.set(`afzux:code:${code}`, JSON.stringify(data));
+          newOnes.push({ code, ...data });
+        }
+        setGeneratedCodes(newOnes);
+        await loadCodes();
+        notify(`✓ ${codeQty} code${codeQty > 1 ? "s" : ""} generated!`);
+        setCodeLoading(false);
+      };
+
+      // ── Block / manage ──
+      const blockUser = async (uid, block) => {
+        store.set(`fizux:blocked:${uid}`, JSON.stringify({ blocked: block, at: Date.now() }));
+        await loadUsers();
+        setSelectedUser(prev => prev?.uid === uid ? { ...prev, blocked: block } : prev);
+        notify(block ? "🚫 User blocked" : "✓ User unblocked");
+      };
+
+      const blockUkey = async (ukey, block) => {
+        try { const d = store.get(`afzux:ukey:${ukey}`); if(d?.value) { const uk = JSON.parse(d.value); uk.blocked = block; store.set(`afzux:ukey:${ukey}`, JSON.stringify(uk)); } } catch {}
+        await loadUkeys();
+        notify(block ? "🚫 Ukey blocked" : "✓ Ukey unblocked");
+      };
+
+      const revokeUkey = async (ukey) => {
+        try { const d = store.get(`afzux:ukey:${ukey}`); if(d?.value) { const uk = JSON.parse(d.value); uk.expiry = new Date(0).toISOString(); uk.blocked = true; store.set(`afzux:ukey:${ukey}`, JSON.stringify(uk)); } } catch {}
+        await loadUkeys(); notify("Ukey revoked");
+      };
+
+      const deleteUkey = async (ukey) => { store.delete(`afzux:ukey:${ukey}`); await loadUkeys(); notify("Deleted"); };
+
+      const revokeCode = async (code) => {
+        try { const d = store.get(`afzux:code:${code}`); if(d?.value) { const c = JSON.parse(d.value); c.expiry = new Date(0).toISOString(); store.set(`afzux:code:${code}`, JSON.stringify(c)); } } catch {}
+        await loadCodes(); notify("Revoked");
+      };
+
+      const deleteCode = async (code) => { store.delete(`afzux:code:${code}`); await loadCodes(); notify("Deleted"); };
+
+      const copy = (t) => { try { navigator.clipboard.writeText(t); } catch { } notify("📋 Copied!"); };
+      const copyAll      = () => { copy(generatedUkeys.map(u => `${u.ukey} | ${u.version} | ${u.duration}`).join("\n")); notify("📋 All copied!"); };
+      const copyAllCodes = () => { copy(generatedCodes.map(c => `${c.code} | ${c.version} | ${c.duration}`).join("\n")); notify("📋 All codes copied!"); };
+
+      // ── Filters ──
+      const filteredUkeys = allUkeys.filter(u => {
+        const q = searchUkeys.toLowerCase();
+        const matchSearch = !q || u.ukey.toLowerCase().includes(q) || (u.label||"").toLowerCase().includes(q);
+        const matchFilter =
+          ukeyFilter === "all"     ||
+          (ukeyFilter === "active"  && !u.blocked && !u.isExpired) ||
+          (ukeyFilter === "used"    && u.used) ||
+          (ukeyFilter === "blocked" && u.blocked) ||
+          (ukeyFilter === "expired" && u.isExpired && !u.blocked);
+        return matchSearch && matchFilter;
+      });
+
+      const filteredUsers = allUsers.filter(u => {
+        const q = searchUsers.toLowerCase();
+        const matchSearch = !q || (u.name||"").toLowerCase().includes(q) || (u.email||"").toLowerCase().includes(q) || (u.uid||"").toLowerCase().includes(q);
+        const matchFilter =
+          userFilter === "all"     ||
+          (userFilter === "active"  && !u.blocked) ||
+          (userFilter === "blocked" && u.blocked) ||
+          (userFilter === "google"  && u.method === "google") ||
+          (userFilter === "ukey"    && u.method === "ukey") ||
+          (userFilter === "premium" && u.premium);
+        return matchSearch && matchFilter;
+      });
+
+      // ════════════ SCREENS ════════════
+
+      if(screen === "loading") return (
+        <div style={{ height:"100vh", background:C.bg, display:"flex", alignItems:"center", justifyContent:"center" }}>
+          <div style={{ textAlign:"center" }}>
+            <div style={{ width:72, height:72, borderRadius:24, background:C.gradGold, display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:32, color:"#1A1000", margin:"0 auto 16px" }}>A</div>
+            <div style={{ color:C.textMuted, fontSize:13 }}>Loading AFZUX...</div>
+          </div>
+        </div>
+      );
+
+      if(screen === "login") return (
+        <div style={{ height:"100vh", background:C.bg, display:"flex", alignItems:"center", justifyContent:"center", padding:20, position:"relative", overflow:"hidden" }}>
+          <div style={{ position:"absolute", width:400, height:400, borderRadius:"50%", background:C.gradGold, opacity:0.04, top:-120, right:-100, filter:"blur(80px)", pointerEvents:"none" }}/>
+
+          {/* Toast */}
+          {toast.msg && <div style={{ position:"fixed", top:20, left:"50%", transform:"translateX(-50%)", background:C.card, border:`1.5px solid ${toast.type==="err"?C.red+"60":C.green+"60"}`, borderRadius:12, padding:"10px 22px", fontSize:13, zIndex:9999, color:toast.type==="err"?C.red:C.green, boxShadow:C.shadowLg, whiteSpace:"nowrap", fontWeight:600 }}>{toast.msg}</div>}
+
+          <div style={{ width:"100%", maxWidth:400 }}>
+            <div style={{ textAlign:"center", marginBottom:32 }}>
+              <div style={{ width:72, height:72, borderRadius:24, background:C.gradGold, display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:32, color:"#1A1000", margin:"0 auto 16px", boxShadow:C.shadowGold }}>A</div>
+              <div style={{ fontWeight:900, fontSize:28, color:C.text, letterSpacing:-0.5, marginBottom:6 }}>AFZUX v3.0</div>
+              <div style={{ fontSize:13, color:C.textMuted }}>Personal FIZUX Admin Dashboard</div>
+              <div style={{ fontSize:11, color:C.textDim, marginTop:4 }}>Owner-only access</div>
+            </div>
+            <div style={{ ...S.card({ padding:28, borderRadius:24 }), boxShadow:C.shadowLg }}>
+              <label style={{ fontSize:11, color:C.textMuted, fontWeight:700, letterSpacing:0.8, display:"block", marginBottom:8 }}>MASTER KEY</label>
+              <input type="password" value={inputKey}
+                onChange={e => { setInputKey(e.target.value); setLoginError(""); }}
+                onKeyDown={e => e.key === "Enter" && doLogin()}
+                placeholder="Enter your master key"
+                style={{ ...S.inp({ marginBottom: loginError ? 4 : 14, fontFamily:"'DM Mono',monospace", letterSpacing:2, textAlign:"center", borderColor: loginError ? C.red : C.border }) }}
+                autoFocus/>
+              {loginError && <div style={{ color:C.red, fontSize:12, textAlign:"center", marginBottom:14 }}>{loginError}</div>}
+              <button onClick={doLogin} style={S.btnGold({ width:"100%", padding:15, borderRadius:14, fontSize:15 })}>🔓 Login to AFZUX</button>
+            </div>
+            <div style={{ textAlign:"center", marginTop:16, fontSize:11, color:C.textDim }}>Protected · This app is for the owner only</div>
+          </div>
+        </div>
+      );
+
+      // ════════════ DASHBOARD ════════════
+      const tabs = [
+        { id:"overview",  icon:"▦", label:"Overview"  },
+        { id:"users",     icon:"◎", label:"Users"     },
+        { id:"ukeys",     icon:"⬡", label:"Ukeys"     },
+        { id:"generate",  icon:"◈", label:"Generate"  },
+        { id:"codes",     icon:"✦", label:"Prm Codes" },
+        { id:"security",  icon:"🔒", label:"Security"  },
+      ];
+
+      return (
+        <div style={{ minHeight:"100vh", background:C.bg, color:C.text }}>
+          {/* Toast */}
+          {toast.msg && <div style={{ position:"fixed", top:20, left:"50%", transform:"translateX(-50%)", background:C.card, border:`1.5px solid ${toast.type==="err"?C.red+"60":C.green+"60"}`, borderRadius:12, padding:"10px 22px", fontSize:13, zIndex:9999, color:toast.type==="err"?C.red:C.green, boxShadow:C.shadowLg, whiteSpace:"nowrap", fontWeight:600 }}>{toast.msg}</div>}
+
+          {/* Modals */}
+          {showChangeKey && (
+            <ChangeMasterKeyModal C={C} S={S}
+              onClose={() => setShowChangeKey(false)}
+              onSave={handleChangeMasterKey}/>
+          )}
+          {selectedUser && (
+            <UserDetailModal C={C} S={S}
+              user={selectedUser}
+              onClose={() => setSelectedUser(null)}
+              onBlock={blockUser}/>
+          )}
+
+          {/* Header */}
+          <div style={{ background:C.surface, borderBottom:`1px solid ${C.border}`, padding:"14px 20px", display:"flex", alignItems:"center", gap:12, position:"sticky", top:0, zIndex:10 }}>
+            <div style={{ width:40, height:40, borderRadius:14, background:C.gradGold, display:"flex", alignItems:"center", justifyContent:"center", fontWeight:900, fontSize:18, color:"#1A1000" }}>A</div>
+            <div style={{ flex:1 }}>
+              <div style={{ fontWeight:800, fontSize:16, letterSpacing:-0.3 }}>AFZUX v3.0</div>
+              <div style={{ fontSize:11, color:C.textMuted }}>{stats.totalUsers} users · {stats.totalUkeys} ukeys · ₹{stats.totalRevEstimate.toLocaleString()} estimated</div>
+            </div>
+            <button onClick={async () => { await loadAll(); notify("✓ Refreshed!"); }} style={S.btnGhost({ padding:"7px 12px" })}>↻ Refresh</button>
+            <button onClick={() => { setScreen("login"); setLoginError(""); }} style={S.btnGhost({ color:C.red })}>Logout</button>
+          </div>
+
+          {/* Tab Bar */}
+          <div style={{ background:C.surface, borderBottom:`1px solid ${C.border}`, padding:"0 16px", display:"flex", overflowX:"auto" }}>
+            {tabs.map(tab => (
+              <button key={tab.id} onClick={() => setActiveTab(tab.id)}
+                style={{ padding:"13px 16px", background:"none", border:"none", borderBottom:`2px solid ${activeTab===tab.id?"#C9A84C":"transparent"}`, color:activeTab===tab.id?C.accent:C.textMuted, fontWeight:activeTab===tab.id?700:400, fontSize:13, cursor:"pointer", fontFamily:"inherit", whiteSpace:"nowrap", display:"flex", alignItems:"center", gap:5 }}>
+                <span>{tab.icon}</span>{tab.label}
+              </button>
+            ))}
+          </div>
+
+          <div style={{ padding:16, maxWidth:820, margin:"0 auto" }}>
+
+            {/* ── OVERVIEW ── */}
+            {activeTab === "overview" && (
+              <div>
+                <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:10, marginBottom:14 }}>
+                  {[["◎","Total Users",stats.totalUsers,C.purple],["✓","Active",stats.activeUsers,C.green],["🚫","Blocked",stats.blockedUsers,C.red],["⬡","Ukeys",stats.totalUkeys,C.blue]].map(([icon,label,val,col]) => (
+                    <div key={label} style={S.card({ textAlign:"center", padding:16 })}>
+                      <div style={{ fontSize:20, color:col, marginBottom:4 }}>{icon}</div>
+                      <div style={{ fontSize:28, fontWeight:900, color:col }}>{val}</div>
+                      <div style={{ fontSize:11, color:C.textMuted, marginTop:2 }}>{label}</div>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:10, marginBottom:14 }}>
+                  {[["🌐","Google",stats.googleUsers,C.blue],["⬡","Ukey Login",stats.ukeyUsers,C.purple],["✦","Premium",stats.premiumUsers,C.accent],["₹","Revenue Est",`₹${(stats.totalRevEstimate/1000).toFixed(0)}K`,C.green]].map(([icon,label,val,col]) => (
+                    <div key={label} style={S.card({ textAlign:"center", padding:14 })}>
+                      <div style={{ fontSize:16, color:col, marginBottom:4 }}>{icon}</div>
+                      <div style={{ fontSize:22, fontWeight:900, color:col }}>{val}</div>
+                      <div style={{ fontSize:10, color:C.textMuted, marginTop:2 }}>{label}</div>
+                    </div>
+                  ))}
+                </div>
+                <div style={S.card()}>
+                  <div style={{ fontWeight:700, fontSize:15, marginBottom:14 }}>◎ Recent Users</div>
+                  {allUsers.slice(0,7).map((u,i) => (
+                    <div key={u.uid||i} onClick={() => setSelectedUser(u)}
+                      style={{ display:"flex", gap:10, alignItems:"center", padding:"10px 0", borderBottom:i<Math.min(allUsers.length,7)-1?`1px solid ${C.border}`:"none", cursor:"pointer" }}>
+                      <div style={{ width:38, height:38, borderRadius:"50%", background:u.method==="google"?"#4285F4":C.gradPurple, display:"flex", alignItems:"center", justifyContent:"center", fontWeight:700, fontSize:15, color:"#fff", flexShrink:0 }}>
+                        {(u.name||"U").charAt(0).toUpperCase()}
+                      </div>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div style={{ fontSize:13, fontWeight:600, display:"flex", alignItems:"center", gap:6 }}>
+                          {u.name}
+                          {u.blocked && <span style={S.badge(C.red, { fontSize:9 })}>Blocked</span>}
+                          {u.premium && <span style={S.badge(C.accent, { fontSize:9 })}>✦ {u.premiumVersion}</span>}
+                        </div>
+                        <div style={{ fontSize:11, color:C.textMuted }}>{u.method==="google"?"🌐 Google":"🔑 Ukey"} · {u.analytics?.totalMsgs||0} msgs · Last: {u.lastLogin?new Date(u.lastLogin).toLocaleDateString():"Never"}</div>
+                      </div>
+                      <button onClick={e => { e.stopPropagation(); blockUser(u.uid,!u.blocked); }}
+                        style={S.btnGhost({ fontSize:11, padding:"4px 10px", color:u.blocked?C.green:C.red, borderColor:u.blocked?C.green+"40":C.red+"40" })}>
+                        {u.blocked?"Unblock":"Block"}
+                      </button>
+                    </div>
+                  ))}
+                  {allUsers.length === 0 && <div style={{ textAlign:"center", padding:24, color:C.textMuted }}>No users yet. Share FIZUX!</div>}
+                </div>
+              </div>
+            )}
+
+            {/* ── USERS ── */}
+            {activeTab === "users" && (
+              <div>
+                <div style={{ display:"flex", gap:8, marginBottom:12, flexWrap:"wrap" }}>
+                  <input value={searchUsers} onChange={e => setSearchUsers(e.target.value)} placeholder="Search users..." style={S.inp({ flex:1, minWidth:150, padding:"9px 14px", fontSize:12 })}/>
+                  {["all","active","blocked","google","ukey","premium"].map(f => (
+                    <button key={f} onClick={() => setUserFilter(f)}
+                      style={{ padding:"7px 12px", borderRadius:20, border:`1.5px solid ${userFilter===f?C.accent:C.border}`, background:userFilter===f?C.accent+"12":"transparent", color:userFilter===f?C.accent:C.textMuted, fontSize:11, cursor:"pointer", textTransform:"capitalize" }}>{f}</button>
+                  ))}
+                </div>
+                <div style={{ fontSize:12, color:C.textMuted, marginBottom:10 }}>{filteredUsers.length} users</div>
+                {filteredUsers.length === 0 && <div style={S.card({ textAlign:"center", padding:40, color:C.textMuted })}>No users found.</div>}
+                {filteredUsers.map((u,i) => (
+                  <div key={u.uid||i} onClick={() => setSelectedUser(u)}
+                    style={{ ...S.card({ marginBottom:10, padding:16 }), opacity:u.blocked?0.7:1, borderColor:u.blocked?C.red+"40":C.border, cursor:"pointer" }}>
+                    <div style={{ display:"flex", gap:12, alignItems:"flex-start" }}>
+                      <div style={{ width:44, height:44, borderRadius:"50%", background:u.method==="google"?"#4285F4":C.gradPurple, display:"flex", alignItems:"center", justifyContent:"center", fontWeight:700, fontSize:18, color:"#fff", flexShrink:0 }}>
+                        {(u.name||"U").charAt(0).toUpperCase()}
+                      </div>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div style={{ display:"flex", alignItems:"center", gap:6, flexWrap:"wrap", marginBottom:5 }}>
+                          <span style={{ fontSize:14, fontWeight:700 }}>{u.name}</span>
+                          {u.blocked && <span style={S.badge(C.red)}>🚫 Blocked</span>}
+                          {u.premium && <span style={S.badge(C.accent)}>✦ {u.premiumVersion}</span>}
+                          <span style={S.badge(u.method==="google"?C.blue:C.purple, { fontSize:10 })}>{u.method==="google"?"🌐":"🔑"} {u.method}</span>
+                        </div>
+                        {u.email && <div style={{ fontSize:11, color:C.textMuted, marginBottom:3 }}>{u.email}</div>}
+                        <div style={{ display:"flex", gap:10, flexWrap:"wrap", fontSize:11, color:C.textMuted }}>
+                          <span>💬 {u.analytics?.totalMsgs||0} msgs</span>
+                          <span>⚡ {Object.values(u.analytics?.featuresUsed||{}).reduce((a,b)=>a+b,0)} features</span>
+                          {u.analytics?.useCase && <span>◎ {u.analytics.useCase}</span>}
+                          <span>🕐 {u.lastLogin?new Date(u.lastLogin).toLocaleDateString():"Never"}</span>
+                        </div>
+                      </div>
+                      <button onClick={e => { e.stopPropagation(); blockUser(u.uid,!u.blocked); }}
+                        style={S.btnGhost({ fontSize:11, padding:"6px 12px", color:u.blocked?C.green:C.red, borderColor:u.blocked?C.green+"40":C.red+"40", flexShrink:0 })}>
+                        {u.blocked?"✓ Unblock":"🚫 Block"}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* ── UKEYS ── */}
+            {activeTab === "ukeys" && (
+              <div>
+                <div style={{ display:"flex", gap:8, marginBottom:12, flexWrap:"wrap" }}>
+                  <input value={searchUkeys} onChange={e => setSearchUkeys(e.target.value)} placeholder="Search ukeys..." style={S.inp({ flex:1, minWidth:140, padding:"9px 14px", fontSize:12 })}/>
+                  {["all","active","used","blocked","expired"].map(f => (
+                    <button key={f} onClick={() => setUkeyFilter(f)}
+                      style={{ padding:"7px 12px", borderRadius:20, border:`1.5px solid ${ukeyFilter===f?C.accent:C.border}`, background:ukeyFilter===f?C.accent+"12":"transparent", color:ukeyFilter===f?C.accent:C.textMuted, fontSize:11, cursor:"pointer", textTransform:"capitalize" }}>{f}</button>
+                  ))}
+                </div>
+                <div style={{ fontSize:12, color:C.textMuted, marginBottom:10 }}>{filteredUkeys.length} ukeys</div>
+                {filteredUkeys.length === 0 && <div style={S.card({ textAlign:"center", padding:40, color:C.textMuted })}>No ukeys found.</div>}
+                {filteredUkeys.map((u,i) => (
+                  <div key={u.ukey||i} style={{ ...S.card({ marginBottom:10, padding:14 }), borderColor:u.blocked?C.red+"40":u.isExpired?C.orange+"40":C.border }}>
+                    <div style={{ display:"flex", gap:10, alignItems:"flex-start", flexWrap:"wrap" }}>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div style={{ fontFamily:"'DM Mono',monospace", fontSize:12, fontWeight:600, color:u.blocked?C.red:C.text, marginBottom:7, wordBreak:"break-all", letterSpacing:1 }}>{u.ukey}</div>
+                        <div style={{ display:"flex", gap:5, flexWrap:"wrap", marginBottom:5 }}>
+                          <span style={S.badge(u.free?C.green:C.purple)}>{u.version}</span>
+                          <span style={S.badge(u.durationDays===-1?C.accent:C.blue)}>{u.duration}</span>
+                          <span style={S.badge(u.blocked?C.red:u.isExpired?C.orange:u.used?C.blue:C.green)}>{u.blocked?"🚫 Blocked":u.isExpired?"⏰ Expired":u.used?"✓ Used":"◎ Active"}</span>
+                        </div>
+                        <div style={{ fontSize:10, color:C.textDim }}>
+                          {u.label} · {u.createdAt?new Date(u.createdAt).toLocaleDateString():""}
+                          {u.lastLogin?` · Last: ${new Date(u.lastLogin).toLocaleDateString()}`:""}
+                          {u.expiry!=="never"?` · Exp: ${new Date(u.expiry).toLocaleDateString()}`:" · Never expires"}
+                        </div>
+                      </div>
+                      <div style={{ display:"flex", gap:5, flexWrap:"wrap", flexShrink:0 }}>
+                        <button onClick={() => copy(u.ukey)}            style={S.btnGhost({ fontSize:11, padding:"5px 9px" })}>Copy</button>
+                        {!u.blocked
+                          ? <button onClick={() => blockUkey(u.ukey,true)}  style={S.btnGhost({ fontSize:11, padding:"5px 9px", color:C.red })}>Block</button>
+                          : <button onClick={() => blockUkey(u.ukey,false)} style={S.btnGhost({ fontSize:11, padding:"5px 9px", color:C.green })}>Unblock</button>}
+                        <button onClick={() => revokeUkey(u.ukey)}      style={S.btnGhost({ fontSize:11, padding:"5px 9px", color:C.orange })}>Revoke</button>
+                        <button onClick={() => deleteUkey(u.ukey)}      style={S.btnGhost({ fontSize:11, padding:"5px 9px", color:C.red })}>Del</button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* ── GENERATE ── */}
+            {activeTab === "generate" && (
+              <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+                <div style={S.card()}>
+                  <div style={{ fontSize:11, color:C.textMuted, fontWeight:700, letterSpacing:1.2, marginBottom:10 }}>CLIENT LABEL</div>
+                  <input value={clientLabel} onChange={e => setClientLabel(e.target.value)} placeholder="Client name (optional)" style={S.inp()}/>
+                </div>
+                <div style={S.card()}>
+                  <div style={{ fontSize:11, color:C.textMuted, fontWeight:700, letterSpacing:1.2, marginBottom:12 }}>SELECT VERSION</div>
+                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8 }}>
+                    {VERSIONS.map(v => (
+                      <button key={v.id} onClick={() => setSelVersion(v)}
+                        style={{ padding:"12px 10px", borderRadius:14, border:`2px solid ${selVersion.id===v.id?v.color:C.border}`, background:selVersion.id===v.id?v.color+"12":C.surface, cursor:"pointer", textAlign:"left" }}>
+                        {v.free && <span style={{ fontSize:9, background:C.green+"20", color:C.green, padding:"1px 5px", borderRadius:4, display:"block", marginBottom:4 }}>FREE</span>}
+                        <div style={{ fontSize:11, fontWeight:700, color:selVersion.id===v.id?v.color:C.text }}>{v.label}</div>
+                        <div style={{ fontSize:9, color:C.textMuted, marginTop:2 }}>{v.desc}</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div style={S.card()}>
+                  <div style={{ fontSize:11, color:C.textMuted, fontWeight:700, letterSpacing:1.2, marginBottom:12 }}>SELECT DURATION</div>
+                  <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:6 }}>
+                    {DURATIONS.map(d => (
+                      <button key={d.label} onClick={() => setSelDuration(d)}
+                        style={{ padding:"9px 6px", borderRadius:10, border:`2px solid ${selDuration.label===d.label?(d.days===-1?C.accent:C.green):C.border}`, background:selDuration.label===d.label?(d.days===-1?C.accent+"12":C.green+"12"):C.surface, color:selDuration.label===d.label?(d.days===-1?C.accent:C.green):C.textMuted, fontWeight:selDuration.label===d.label?700:400, fontSize:10, cursor:"pointer", textAlign:"center" }}>
+                        {d.days===-1?"♾ ":""}{d.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div style={S.card()}>
+                  <div style={{ fontSize:11, color:C.textMuted, fontWeight:700, letterSpacing:1.2, marginBottom:12 }}>QUANTITY</div>
+                  <div style={{ display:"flex", alignItems:"center", gap:14, marginBottom:10 }}>
+                    <button onClick={() => setQuantity(Math.max(1,quantity-1))} style={S.btnGhost({ padding:"10px 22px", fontSize:20, fontWeight:700 })}>-</button>
+                    <div style={{ flex:1, textAlign:"center", fontSize:36, fontWeight:900 }}>{quantity}</div>
+                    <button onClick={() => setQuantity(Math.min(100,quantity+1))} style={S.btnGhost({ padding:"10px 22px", fontSize:20, fontWeight:700 })}>+</button>
+                  </div>
+                  <div style={{ display:"flex", gap:6 }}>
+                    {[1,5,10,25,50,100].map(n => (
+                      <button key={n} onClick={() => setQuantity(n)}
+                        style={{ flex:1, padding:"7px 0", borderRadius:8, border:`1.5px solid ${quantity===n?C.accent:C.border}`, background:quantity===n?C.accent+"12":"transparent", color:quantity===n?C.accent:C.textMuted, fontSize:12, cursor:"pointer" }}>{n}</button>
+                    ))}
+                  </div>
+                </div>
+                <div style={{ ...S.card(), background:C.accent+"0A", borderColor:C.accent+"40" }}>
+                  {[["Version",selVersion.label,selVersion.color],["Duration",selDuration.label,selDuration.days===-1?C.accent:C.green],["Quantity",`${quantity} Ukey${quantity>1?"s":""}`,C.purple]].map(([k,v,col]) => (
+                    <div key={k} style={{ display:"flex", justifyContent:"space-between", fontSize:13, marginBottom:6 }}>
+                      <span style={{ color:C.textMuted }}>{k}</span>
+                      <span style={{ fontWeight:700, color:col }}>{v}</span>
+                    </div>
+                  ))}
+                </div>
+                <button onClick={generateUkeys} disabled={genLoading} style={S.btnGold({ width:"100%", padding:16, fontSize:16, borderRadius:16 })}>
+                  {genLoading ? `⚡ Generating ${quantity} Ukeys...` : `⬡ Generate ${quantity} Ukey${quantity>1?"s":""}`}
+                </button>
+                {generatedUkeys.length > 0 && (
+                  <div style={S.card()}>
+                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
+                      <div style={{ fontWeight:700 }}>✓ Generated ({generatedUkeys.length})</div>
+                      <button onClick={copyAll} style={S.btnGhost({ fontSize:12, padding:"6px 12px" })}>Copy All</button>
+                    </div>
+                    {generatedUkeys.map((u,i) => (
+                      <div key={u.ukey||i} style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:12, padding:14, marginBottom:10 }}>
+                        <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:8 }}>
+                          <div style={{ fontFamily:"'DM Mono',monospace", fontSize:13, fontWeight:700, letterSpacing:2, flex:1, wordBreak:"break-all" }}>{u.ukey}</div>
+                          <button onClick={() => copy(u.ukey)} style={S.btnGhost({ fontSize:11, padding:"5px 9px", flexShrink:0 })}>Copy</button>
+                        </div>
+                        <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+                          <span style={S.badge(selVersion.color)}>{u.version}</span>
+                          <span style={S.badge(u.durationDays===-1?C.accent:C.green)}>{u.duration}</span>
+                          {u.free && <span style={S.badge(C.green)}>Free Access</span>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ── PREMIUM CODES ── */}
+            {activeTab === "codes" && (
+              <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+                <div style={{ ...S.card(), borderColor:C.purple+"40", background:C.purple+"0A" }}>
+                  <div style={{ fontWeight:700, fontSize:15, marginBottom:4, color:C.purple }}>✦ Premium Activation Codes</div>
+                  <div style={{ fontSize:13, color:C.textMuted }}>User enters this code in FIZUX to unlock premium. Separate from Ukeys.</div>
+                </div>
+                <div style={S.card()}>
+                  <div style={{ fontSize:11, color:C.textMuted, fontWeight:700, letterSpacing:1.2, marginBottom:10 }}>VERSION</div>
+                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:6, marginBottom:16 }}>
+                    {VERSIONS.filter(v => !v.free).map(v => (
+                      <button key={v.id} onClick={() => setSelCodeVersion(v)}
+                        style={{ padding:"10px 8px", borderRadius:12, border:`2px solid ${selCodeVersion.id===v.id?v.color:C.border}`, background:selCodeVersion.id===v.id?v.color+"12":C.surface, cursor:"pointer", textAlign:"left" }}>
+                        <div style={{ fontSize:11, fontWeight:700, color:selCodeVersion.id===v.id?v.color:C.text }}>{v.label}</div>
+                        <div style={{ fontSize:9, color:C.textMuted }}>{v.desc}</div>
+                      </button>
+                    ))}
+                  </div>
+                  <div style={{ fontSize:11, color:C.textMuted, fontWeight:700, letterSpacing:1.2, marginBottom:10 }}>DURATION</div>
+                  <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:5, marginBottom:14 }}>
+                    {DURATIONS.map(d => (
+                      <button key={d.label} onClick={() => setSelCodeDuration(d)}
+                        style={{ padding:"8px 4px", borderRadius:9, border:`1.5px solid ${selCodeDuration.label===d.label?(d.days===-1?C.accent:C.green):C.border}`, background:selCodeDuration.label===d.label?(d.days===-1?C.accent+"12":C.green+"12"):C.surface, color:selCodeDuration.label===d.label?(d.days===-1?C.accent:C.green):C.textMuted, fontSize:10, cursor:"pointer", textAlign:"center" }}>
+                        {d.days===-1?"♾":""}{d.label}
+                      </button>
+                    ))}
+                  </div>
+                  <div style={{ display:"flex", gap:8, alignItems:"center", marginBottom:14 }}>
+                    <span style={{ fontSize:13, color:C.textMuted }}>Quantity:</span>
+                    {[1,3,5,10,20].map(n => (
+                      <button key={n} onClick={() => setCodeQty(n)}
+                        style={{ padding:"6px 14px", borderRadius:8, border:`1.5px solid ${codeQty===n?C.accent:C.border}`, background:codeQty===n?C.accent+"12":"transparent", color:codeQty===n?C.accent:C.textMuted, fontSize:13, cursor:"pointer" }}>{n}</button>
+                    ))}
+                  </div>
+                  <button onClick={generateCodes} disabled={codeLoading} style={S.btnGold({ width:"100%", padding:13, borderRadius:14 })}>
+                    {codeLoading ? "Generating..." : "✦ Generate Activation Codes"}
+                  </button>
+                </div>
+                {generatedCodes.length > 0 && (
+                  <div style={S.card()}>
+                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
+                      <div style={{ fontWeight:700 }}>Generated ({generatedCodes.length})</div>
+                      <button onClick={copyAllCodes} style={S.btnGhost({ fontSize:11, padding:"5px 10px" })}>Copy All</button>
+                    </div>
+                    {generatedCodes.map((c,i) => (
+                      <div key={c.code||i} style={{ background:C.surface, border:`1px solid ${C.border}`, borderRadius:12, padding:12, marginBottom:8 }}>
+                        <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:6 }}>
+                          <div style={{ fontFamily:"'DM Mono',monospace", fontSize:12, fontWeight:700, flex:1, wordBreak:"break-all", letterSpacing:1.5 }}>{c.code}</div>
+                          <button onClick={() => copy(c.code)} style={S.btnGhost({ fontSize:10, padding:"4px 8px", flexShrink:0 })}>Copy</button>
+                        </div>
+                        <div style={{ display:"flex", gap:5 }}>
+                          <span style={S.badge(C.purple)}>{c.version}</span>
+                          <span style={S.badge(c.durationDays===-1?C.accent:C.green)}>{c.duration}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div style={S.card()}>
+                  <div style={{ fontWeight:700, marginBottom:12 }}>All Codes ({allCodes.length})</div>
+                  {allCodes.length === 0 && <div style={{ textAlign:"center", padding:24, color:C.textMuted }}>No codes yet.</div>}
+                  {allCodes.map((c,i) => (
+                    <div key={c.code||i} style={{ display:"flex", gap:8, alignItems:"center", padding:"9px 0", borderBottom:i<allCodes.length-1?`1px solid ${C.border}`:"none", flexWrap:"wrap" }}>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div style={{ fontFamily:"'DM Mono',monospace", fontSize:11, wordBreak:"break-all", letterSpacing:1 }}>{c.code}</div>
+                        <div style={{ display:"flex", gap:4, marginTop:4 }}>
+                          <span style={S.badge(C.purple, { fontSize:9 })}>{c.version}</span>
+                          <span style={S.badge(c.used?C.blue:c.isExpired?C.red:C.green, { fontSize:9 })}>{c.used?"Used":c.isExpired?"Expired":"Active"}</span>
+                        </div>
+                      </div>
+                      <div style={{ display:"flex", gap:4 }}>
+                        <button onClick={() => copy(c.code)} style={S.btnGhost({ fontSize:10, padding:"4px 8px" })}>Copy</button>
+                        {!c.used && !c.isExpired && <button onClick={() => revokeCode(c.code)} style={S.btnGhost({ fontSize:10, padding:"4px 8px", color:C.orange })}>Revoke</button>}
+                        <button onClick={() => deleteCode(c.code)} style={S.btnGhost({ fontSize:10, padding:"4px 8px", color:C.red })}>Del</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* ── SECURITY ── */}
+            {activeTab === "security" && (
+              <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+                <div style={{ ...S.card(), borderColor:C.accent+"40" }}>
+                  <div style={{ fontWeight:700, fontSize:16, color:C.accent, marginBottom:6 }}>⬡ Master Key</div>
+                  <div style={{ fontSize:13, color:C.textMuted, marginBottom:14 }}>Your master key is the only way to access AFZUX. Keep it safe.</div>
+                  <div style={{ padding:"12px 16px", background:C.surface, borderRadius:12, border:`1px solid ${C.border}`, marginBottom:14 }}>
+                    <div style={{ fontSize:11, color:C.textMuted, marginBottom:4 }}>CURRENT KEY STATUS</div>
+                    <div style={{ fontSize:14, color:C.green, fontWeight:600 }}>✓ Active & Secure</div>
+                    <div style={{ fontSize:11, color:C.textDim, marginTop:2 }}>Hash stored in localStorage</div>
+                  </div>
+                  <button onClick={() => setShowChangeKey(true)} style={S.btnGold({ width:"100%", padding:13, borderRadius:14 })}>⬡ Change Master Key</button>
+                </div>
+                <div style={S.card()}>
+                  <div style={{ fontWeight:700, fontSize:15, marginBottom:14 }}>▦ App Statistics</div>
+                  {[
+                    ["Total Users Registered", stats.totalUsers],
+                    ["Active Users",           stats.activeUsers],
+                    ["Blocked Users",          stats.blockedUsers],
+                    ["Total Ukeys Generated",  stats.totalUkeys],
+                    ["Active Ukeys",           stats.activeUkeys],
+                    ["Used Ukeys",             stats.usedUkeys],
+                    ["Premium Users",          stats.premiumUsers],
+                    ["Revenue Estimate",       `₹${stats.totalRevEstimate.toLocaleString()}`],
+                    ["Google Login Users",     stats.googleUsers],
+                    ["Ukey Login Users",       stats.ukeyUsers],
+                  ].map(([k,v]) => (
+                    <div key={k} style={{ display:"flex", justifyContent:"space-between", fontSize:13, padding:"8px 0", borderBottom:`1px solid ${C.border}20` }}>
+                      <span style={{ color:C.textMuted }}>{k}</span>
+                      <span style={{ fontWeight:700, color:C.text }}>{String(v)}</span>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ ...S.card(), borderColor:C.red+"40", background:C.red+"05" }}>
+                  <div style={{ fontWeight:700, fontSize:15, color:C.red, marginBottom:8 }}>⚠ Danger Zone</div>
+                  <div style={{ fontSize:13, color:C.textMuted, marginBottom:14 }}>These actions are irreversible.</div>
+                  <button onClick={() => {
+                    if(!window.confirm("Delete ALL generated ukeys? Cannot be undone.")) return;
+                    const keys = store.list("afzux:ukey:");
+                    if(keys?.keys) keys.keys.forEach(k => store.delete(k));
+                    loadUkeys(); notify("All ukeys deleted");
+                  }} style={{ width:"100%", padding:"11px 0", borderRadius:12, border:`1px solid ${C.red}40`, background:C.red+"10", color:C.red, fontWeight:600, fontSize:13, cursor:"pointer", fontFamily:"inherit", marginBottom:8 }}>
+                    🗑 Delete All Ukeys
+                  </button>
+                  <button onClick={() => {
+                    if(!window.confirm("Delete ALL activation codes?")) return;
+                    const keys = store.list("afzux:code:");
+                    if(keys?.keys) keys.keys.forEach(k => store.delete(k));
+                    loadCodes(); notify("All codes deleted");
+                  }} style={{ width:"100%", padding:"11px 0", borderRadius:12, border:`1px solid ${C.red}40`, background:C.red+"10", color:C.red, fontWeight:600, fontSize:13, cursor:"pointer", fontFamily:"inherit" }}>
+                    🗑 Delete All Codes
+                  </button>
+                </div>
+                <div style={S.card()}>
+                  <div style={{ fontWeight:700, fontSize:15, marginBottom:12 }}>ℹ About AFZUX</div>
+                  {[
+                    ["App",         "AFZUX v3.0"],
+                    ["Edition",     "GitHub Pages (localStorage)"],
+                    ["Purpose",     "FIZUX Admin Dashboard"],
+                    ["Owner",       "You (sole owner)"],
+                    ["Connects to", "FIZUX v8.0"],
+                    ["Ukey format", "20 alphanumeric chars"],
+                    ["Code format", "20 alphanumeric chars"],
+                    ["Max gen",     "100 at once"],
+                    ["Durations",   "3 days to Lifetime"],
+                    ["Login",       "Master Key only"],
+                  ].map(([k,v]) => (
+                    <div key={k} style={{ display:"flex", justifyContent:"space-between", fontSize:12, padding:"6px 0", borderBottom:`1px solid ${C.border}20` }}>
+                      <span style={{ color:C.textMuted }}>{k}</span>
+                      <span style={{ color:C.text }}>{v}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div style={{ height:40 }}/>
+          </div>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById("root"));
+    root.render(<AFZUX/>);
+  </script>
+</body>
+</html>
